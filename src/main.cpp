@@ -1,3 +1,4 @@
+#include "market/market_data_service.h"
 #include "ui/tray_manager.h"
 
 #include <QApplication>
@@ -12,6 +13,7 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("CryptoTray"));
     QCoreApplication::setApplicationName(QStringLiteral("CryptoTray"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    // 托盘程序关闭普通窗口时仍需继续运行，生命周期由托盘菜单控制。
     QApplication::setQuitOnLastWindowClosed(false);
 
     if(!QSystemTrayIcon::isSystemTrayAvailable())
@@ -25,6 +27,9 @@ int main(int argc, char* argv[])
     TrayManager trayManager;
     trayManager.show();
 
+    // Phase 2 只启动行情服务，不把行情数据直接交给托盘 UI。
+    MarketDataService marketService;
+    marketService.start();
+
     return app.exec();
 }
-

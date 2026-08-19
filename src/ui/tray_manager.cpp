@@ -14,6 +14,7 @@ namespace
 {
 QIcon createTrayIcon()
 {
+    // Phase 1 使用代码绘制静态图标，避免为简单占位图标引入额外资源文件。
     QPixmap pixmap(64, 64);
     pixmap.fill(Qt::transparent);
 
@@ -52,6 +53,7 @@ TrayManager::TrayManager(QObject* parent)
 
 TrayManager::~TrayManager()
 {
+    // 先销毁菜单，避免托盘图标在析构期间仍引用已经失效的菜单。
     delete trayMenu_;
 }
 
