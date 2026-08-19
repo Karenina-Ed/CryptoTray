@@ -177,10 +177,17 @@ void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)
 void TaskbarTickerWidget::showContextMenu(const QPoint& globalPosition)
 {
     QMenu menu(this);
+    menu.setAttribute(Qt::WA_TranslucentBackground);
+    menu.setMinimumWidth(220);
     menu.setStyleSheet(QStringLiteral(
-        "QMenu { background: #111111; color: white; border: 1px solid #2b2b2b; padding: 6px; }"
-        "QMenu::item { padding: 7px 26px; border-radius: 4px; }"
-        "QMenu::item:selected { background: #242424; }"));
+        "QMenu { background:#0d0e11; color:#d7d9de; border:1px solid #272a31; "
+        "border-radius:12px; padding:7px; "
+        "font-family:'Segoe UI Variable Text','Segoe UI'; font-size:12px; }"
+        "QMenu::item { background:transparent; border-radius:8px; padding:9px 14px; "
+        "margin:1px 0; }"
+        "QMenu::item:selected { color:#f4f4f5; background:#1b1e24; }"
+        "QMenu::item:pressed { color:#07130c; background:#17c964; }"
+        "QMenu::separator { height:1px; background:#272a31; margin:7px 6px; }"));
     QAction* configureAction = menu.addAction(QStringLiteral("配置 Binance API"));
     QAction* deleteAction = menu.addAction(QStringLiteral("删除 API 凭据"));
     menu.addSeparator();
