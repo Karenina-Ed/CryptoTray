@@ -1,0 +1,3 @@
+I:/CryptoTray/build/CMakeFiles/CryptoTray.dir
+I:/CryptoTray/build/CMakeFiles/ALL_BUILD.dir
+I:/CryptoTray/build/CMakeFiles/ZERO_CHECK.dir
