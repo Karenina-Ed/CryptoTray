@@ -140,13 +140,16 @@ void AccountPositionService::refresh()
     pendingPositions_.clear();
     pendingErrors_.clear();
     pendingOverview_ = {};
-    pendingReplies_ = 4;
+    pendingReplies_ = 5;
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Positions,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/positionRisk"));
     sendRequest(FuturesMarket::CoinMargined, RequestKind::Positions,
                 QStringLiteral("https://dapi.binance.com"),
                 QStringLiteral("/dapi/v1/positionRisk"));
+    sendRequest(FuturesMarket::Options, RequestKind::Positions,
+                QStringLiteral("https://eapi.binance.com"),
+                QStringLiteral("/eapi/v1/position"));
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Account,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/account"));
@@ -199,16 +202,21 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
                 .arg(error.value(QStringLiteral("msg")).toString())
                 .arg(error.value(QStringLiteral("code")).toInt());
         }
-        pendingErrors_.append(market == FuturesMarket::UsdMargined
-                                  ? QStringLiteral("U 本位：%1").arg(message)
-                                  : QStringLiteral("币本位：%1").arg(message));
+        const QString marketName = market == FuturesMarket::UsdMargined
+            ? QStringLiteral("U 本位")
+            : market == FuturesMarket::CoinMargined ? QStringLiteral("币本位")
+                                                     : QStringLiteral("期权");
+        pendingErrors_.append(QStringLiteral("%1：%2").arg(marketName, message));
     }
     else if(kind == RequestKind::Positions)
     {
         for(const QJsonValue& value : document.array())
         {
             const QJsonObject object = value.toObject();
-            const double amount = object.value(QStringLiteral("positionAmt")).toString().toDouble();
+            const bool isOption = market == FuturesMarket::Options;
+            const double amount = object.value(isOption ? QStringLiteral("quantity")
+                                                        : QStringLiteral("positionAmt"))
+                                      .toString().toDouble();
             if(std::abs(amount) < 1e-12)
             {
                 continue;
@@ -217,16 +225,24 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             FuturesPosition position;
             position.market = market;
             position.symbol = object.value(QStringLiteral("symbol")).toString();
-            position.side = positionSide(object, amount);
+            position.side = isOption ? object.value(QStringLiteral("side")).toString()
+                                     : positionSide(object, amount);
             position.marginType = object.value(QStringLiteral("marginType")).toString();
-            position.profitAsset = market == FuturesMarket::UsdMargined
-                ? object.value(QStringLiteral("marginAsset")).toString(QStringLiteral("USDT"))
-                : coinProfitAsset(object);
+            position.profitAsset = isOption
+                ? object.value(QStringLiteral("quoteAsset")).toString(QStringLiteral("USDT"))
+                : market == FuturesMarket::UsdMargined
+                    ? object.value(QStringLiteral("marginAsset")).toString(QStringLiteral("USDT"))
+                    : coinProfitAsset(object);
+            position.optionSide = object.value(QStringLiteral("optionSide")).toString();
             position.amount = amount;
             position.entryPrice = object.value(QStringLiteral("entryPrice")).toString().toDouble();
             position.markPrice = object.value(QStringLiteral("markPrice")).toString().toDouble();
-            position.unrealizedProfit = object.value(QStringLiteral("unRealizedProfit")).toString().toDouble();
+            position.strikePrice = object.value(QStringLiteral("strikePrice")).toString().toDouble();
+            position.unrealizedProfit = object.value(
+                isOption ? QStringLiteral("unrealizedPNL")
+                         : QStringLiteral("unRealizedProfit")).toString().toDouble();
             position.liquidationPrice = object.value(QStringLiteral("liquidationPrice")).toString().toDouble();
+            position.expiryDate = object.value(QStringLiteral("expiryDate")).toVariant().toLongLong();
             position.leverage = object.value(QStringLiteral("leverage")).toString().toInt();
             pendingPositions_.append(position);
         }

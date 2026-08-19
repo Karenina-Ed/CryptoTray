@@ -15,6 +15,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
 #include <QPushButton>
 #include <QScreen>
 #include <QStyle>
@@ -168,6 +170,12 @@ void TaskbarTickerWidget::setAccountState(bool configured, const QString& messag
 
 void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)
 {
+    showContextMenu(event->globalPos());
+    event->accept();
+}
+
+void TaskbarTickerWidget::showContextMenu(const QPoint& globalPosition)
+{
     QMenu menu(this);
     menu.setStyleSheet(QStringLiteral(
         "QMenu { background: #111111; color: white; border: 1px solid #2b2b2b; padding: 6px; }"
@@ -190,7 +198,7 @@ void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)
         }
     });
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
-    menu.exec(event->globalPos());
+    menu.exec(globalPosition);
 }
 
 void TaskbarTickerWidget::showCredentialDialog()
@@ -256,13 +264,29 @@ void TaskbarTickerWidget::showCredentialDialog()
 
 void TaskbarTickerWidget::mousePressEvent(QMouseEvent* event)
 {
+    // 左右键都由顶层任务栏窗口处理，子标签仅负责绘制，不参与命中判断。
     if(event->button() == Qt::LeftButton)
     {
         toggleDetailCard();
         event->accept();
         return;
     }
+    if(event->button() == Qt::RightButton)
+    {
+        // 直接在任务栏窗口处理右键，使空白区域与文字区域拥有相同的菜单命中行为。
+        showContextMenu(event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
     QWidget::mousePressEvent(event);
+}
+
+void TaskbarTickerWidget::paintEvent(QPaintEvent* event)
+{
+    QWidget::paintEvent(event);
+    // 分层窗口中完全透明的像素可能被 Windows 穿透；1/255 不可见但能保留完整命中矩形。
+    QPainter painter(this);
+    painter.fillRect(event->rect(), QColor(0, 0, 0, 1));
 }
 
 void TaskbarTickerWidget::closeEvent(QCloseEvent* event)

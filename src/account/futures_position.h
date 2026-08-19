@@ -6,10 +6,11 @@
 enum class FuturesMarket
 {
     UsdMargined,
-    CoinMargined
+    CoinMargined,
+    Options
 };
 
-// 账户层只向 UI 暴露规范化持仓，避免界面依赖两个 Binance 接口的字段差异。
+// 账户层只向 UI 暴露规范化持仓，避免界面依赖不同衍生品接口的字段差异。
 struct FuturesPosition
 {
     FuturesMarket market = FuturesMarket::UsdMargined;
@@ -17,11 +18,14 @@ struct FuturesPosition
     QString side;
     QString marginType;
     QString profitAsset;
+    QString optionSide;
     double amount = 0.0;
     double entryPrice = 0.0;
     double markPrice = 0.0;
+    double strikePrice = 0.0;
     double unrealizedProfit = 0.0;
     double liquidationPrice = 0.0;
+    qint64 expiryDate = 0;
     int leverage = 0;
 };
 

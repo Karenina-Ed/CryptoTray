@@ -12,6 +12,7 @@ class QLabel;
 class QTimer;
 class QCloseEvent;
 class QMouseEvent;
+class QPaintEvent;
 class MarketDetailCard;
 
 class TaskbarTickerWidget final : public QWidget
@@ -38,6 +39,7 @@ signals:
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
     bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 
@@ -52,6 +54,7 @@ private:
     bool embedIntoTaskbar();
     void refreshDisplay();
     void toggleDetailCard();
+    void showContextMenu(const QPoint& globalPosition);
     void showCredentialDialog();
 
     RowWidgets btcRow_;

@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QPushButton>
 #include <QStyle>
@@ -77,7 +78,8 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
     // Qt::Popup 负责点击外部自动关闭；卡片保持顶层，避免成为 Explorer 任务栏的子窗口。
     setAttribute(Qt::WA_TranslucentBackground);
     setObjectName(QStringLiteral("marketDetailCard"));
-    setFixedSize(450, 540);
+    setFixedWidth(450);
+    resize(450, 540);
     setStyleSheet(QStringLiteral(
         "#marketDetailCard { background: transparent; }"
         "QFrame#cardSurface { background: #0d0e11; border: 1px solid #272a31; border-radius: 18px; }"
@@ -229,12 +231,14 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
     };
     addPositionMarket(QStringLiteral("U 本位"), usdPositionsLayout_);
     addPositionMarket(QStringLiteral("币本位"), coinPositionsLayout_);
+    addPositionMarket(QStringLiteral("期权"), optionPositionsLayout_);
     positionRoot->addStretch();
     positionScroll->setWidget(positionContent);
     accountColumn->addWidget(positionScroll, 1);
 
     auto* pageSwitch = new QFrame(surface);
     pageSwitch->setObjectName(QStringLiteral("pageSwitch"));
+    pageSwitch->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto* switchLayout = new QHBoxLayout(pageSwitch);
     switchLayout->setContentsMargins(3, 3, 3, 3);
     switchLayout->setSpacing(3);
@@ -254,7 +258,34 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
     marketButton->setChecked(true);
     connect(pageGroup, &QButtonGroup::idClicked, pages, &QStackedWidget::setCurrentIndex);
     content->addWidget(pageSwitch);
+    pageSwitch->setFixedHeight(pageSwitch->sizeHint().height());
     refreshPositions();
+
+    const int expandedHeight = 540;
+    const QMargins outerMargins = outer->contentsMargins();
+    const QMargins contentMargins = content->contentsMargins();
+    const int chromeHeight = outerMargins.top() + outerMargins.bottom()
+        + contentMargins.top() + contentMargins.bottom()
+        + header->sizeHint().height() + pageSwitch->sizeHint().height()
+        + content->spacing() * 2 + 2;
+    const auto resizeForPage = [this, pages, marketColumn,
+                                expandedHeight, chromeHeight](int index) {
+        const int oldBottom = y() + height();
+        const int pageHeight = index == 0
+            ? marketColumn->sizeHint().height()
+            : expandedHeight - chromeHeight;
+        pages->setFixedHeight(pageHeight);
+        const int targetHeight = index == 0 ? chromeHeight + pageHeight : expandedHeight;
+        // 顶层弹出窗口使用固定高度，避免布局把切换栏拉伸来填充旧页面留下的空间。
+        setFixedHeight(targetHeight);
+        if(isVisible())
+        {
+            // 页面切换时保持底边锚定任务栏，避免卡片向下伸出屏幕。
+            move(x(), oldBottom - height());
+        }
+    };
+    connect(pages, &QStackedWidget::currentChanged, this, resizeForPage);
+    resizeForPage(0);
 }
 
 void MarketDetailCard::updateTicker(const Ticker& ticker)
@@ -416,21 +447,40 @@ void MarketDetailCard::refreshPositions()
                                     ? QStringLiteral("color:#17c964;font-weight:700;")
                                     : QStringLiteral("color:#f04444;font-weight:700;"));
             headline->addWidget(side);
+            if(position.market == FuturesMarket::Options)
+            {
+                auto* optionSide = new QLabel(position.optionSide == QStringLiteral("CALL")
+                                                  ? QStringLiteral("看涨")
+                                                  : QStringLiteral("看跌"), row);
+                optionSide->setProperty("role", "positionMeta");
+                headline->addWidget(optionSide);
+            }
             headline->addStretch();
-            auto* amount = new QLabel(QStringLiteral("%1 · %2x")
-                                          .arg(formatCompactNumber(std::abs(position.amount)))
-                                          .arg(position.leverage), row);
+            const QString amountText = position.market == FuturesMarket::Options
+                ? formatCompactNumber(std::abs(position.amount))
+                : QStringLiteral("%1 · %2x")
+                      .arg(formatCompactNumber(std::abs(position.amount)))
+                      .arg(position.leverage);
+            auto* amount = new QLabel(amountText, row);
             amount->setProperty("role", "positionMeta");
             headline->addWidget(amount);
             box->addLayout(headline);
 
             auto* details = new QHBoxLayout();
-            auto* prices = new QLabel(QStringLiteral("开 %1  标 %2  强平 %3")
-                                          .arg(formatCompactNumber(position.entryPrice),
-                                               formatCompactNumber(position.markPrice),
-                                               position.liquidationPrice > 0.0
-                                                   ? formatCompactNumber(position.liquidationPrice)
-                                                   : QStringLiteral("--")), row);
+            const QString priceText = position.market == FuturesMarket::Options
+                ? QStringLiteral("开 %1  标 %2  行权 %3 · %4 到期")
+                      .arg(formatCompactNumber(position.entryPrice),
+                           formatCompactNumber(position.markPrice),
+                           formatCompactNumber(position.strikePrice),
+                           QDateTime::fromMSecsSinceEpoch(position.expiryDate, Qt::UTC)
+                               .toString(QStringLiteral("MM-dd")))
+                : QStringLiteral("开 %1  标 %2  强平 %3")
+                      .arg(formatCompactNumber(position.entryPrice),
+                           formatCompactNumber(position.markPrice),
+                           position.liquidationPrice > 0.0
+                               ? formatCompactNumber(position.liquidationPrice)
+                               : QStringLiteral("--"));
+            auto* prices = new QLabel(priceText, row);
             prices->setProperty("role", "positionMeta");
             details->addWidget(prices);
             details->addStretch();
@@ -454,4 +504,5 @@ void MarketDetailCard::refreshPositions()
 
     populate(usdPositionsLayout_, FuturesMarket::UsdMargined);
     populate(coinPositionsLayout_, FuturesMarket::CoinMargined);
+    populate(optionPositionsLayout_, FuturesMarket::Options);
 }

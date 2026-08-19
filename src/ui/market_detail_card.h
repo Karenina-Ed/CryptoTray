@@ -46,6 +46,7 @@ private:
     QLabel* coinPnl_ = nullptr;
     QVBoxLayout* usdPositionsLayout_ = nullptr;
     QVBoxLayout* coinPositionsLayout_ = nullptr;
+    QVBoxLayout* optionPositionsLayout_ = nullptr;
     QHash<QString, Ticker> tickers_;
     FuturesPositions positions_;
     bool connected_ = false;
