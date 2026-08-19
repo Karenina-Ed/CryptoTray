@@ -1,2 +1,3 @@
 # CMake 构建目录（本地保留，但不提交到 Git）
 /build/
+/build-*/

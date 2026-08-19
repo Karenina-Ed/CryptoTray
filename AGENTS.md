@@ -1,8 +1,8 @@
-# CryptoTray development notes
+# CryptoTray 开发说明
 
-- Implement the project one phase at a time; do not add later-phase features early.
-- Keep the application lightweight and event-driven, using C++17 and Qt 6 only.
-- Prefer focused changes, Qt parent-child ownership, and simple maintainable code.
-- This is a learning project. Add concise Chinese comments around class responsibilities, important control flow, ownership, and non-obvious decisions; avoid noisy line-by-line translation comments.
-- After every change, configure/build the project, inspect warnings and errors, and review the diff.
-- Phase 1 contains only the application skeleton, system tray icon, and tray menu. It does not contain Binance networking or a price popup.
+- 按阶段逐步实现项目，不要提前加入后续阶段的功能。
+- 应用保持轻量并采用事件驱动设计，仅使用 C++17 和 Qt 6。
+- 改动应聚焦，优先使用 Qt 父子对象所有权，并保持代码简单、易维护。
+- 这是一个学习项目。围绕类职责、重要控制流程、对象所有权和不直观的设计决策添加简洁的中文注释，避免逐行翻译式的冗余注释。
+- 每次改动后都要配置并构建项目，检查警告和错误，并审查差异。
+- 第一阶段仅包含应用骨架、系统托盘图标和托盘菜单，不包含 Binance 网络连接或价格弹窗。

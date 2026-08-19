@@ -1,9 +1,10 @@
 #pragma once
 
+#include "market/ticker.h"
+
 #include <QObject>
 
-class QMenu;
-class QSystemTrayIcon;
+class TaskbarTickerWidget;
 
 class TrayManager final : public QObject
 {
@@ -14,9 +15,11 @@ public:
     ~TrayManager() override;
 
     void show();
+    void updateTicker(const Ticker& ticker);
+    void setConnected(bool connected);
+    void setConnectionError(const QString& message);
 
 private:
-    // 托盘图标由 QObject 父子关系释放；QMenu 是 QWidget，需在析构函数中释放。
-    QSystemTrayIcon* trayIcon_ = nullptr;
-    QMenu* trayMenu_ = nullptr;
+    // 长条组件是唯一界面，右键菜单和退出操作由组件自身负责。
+    TaskbarTickerWidget* taskbarWidget_ = nullptr;
 };

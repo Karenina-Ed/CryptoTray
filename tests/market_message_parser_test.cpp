@@ -10,10 +10,27 @@ class MarketMessageParserTest final : public QObject
 
 private slots:
     void parsesMiniTicker();
+    void parsesUtcDailyKline();
     void rejectsInvalidMessages_data();
     void rejectsInvalidMessages();
     void handlesZeroOpenPrice();
 };
+
+void MarketMessageParserTest::parsesUtcDailyKline()
+{
+    const QString message = QStringLiteral(R"({
+        "e":"kline","E":1720000000000,"s":"BTCUSDT",
+        "k":{"s":"BTCUSDT","o":"60000","c":"63000","h":"64000","l":"59000","v":"123.5"}
+    })");
+
+    const std::optional<Ticker> ticker = parseMarketMessage(message);
+    QVERIFY(ticker.has_value());
+    QCOMPARE(ticker->symbol, QStringLiteral("BTCUSDT"));
+    QCOMPARE(ticker->price, 63000.0);
+    QCOMPARE(ticker->openPrice, 60000.0);
+    QCOMPARE(ticker->changePercent, 5.0);
+    QCOMPARE(ticker->eventTime, 1720000000000);
+}
 
 void MarketMessageParserTest::parsesMiniTicker()
 {

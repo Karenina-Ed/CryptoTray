@@ -38,6 +38,7 @@ MarketDataService::MarketDataService(QObject* parent)
     connect(&websocket_, qOverload<QAbstractSocket::SocketError>(&QWebSocket::error), this,
             [this](QAbstractSocket::SocketError) {
                 qWarning() << "[Market] WebSocket error:" << websocket_.errorString();
+                emit connectionError(websocket_.errorString());
                 scheduleReconnect();
             });
 }
@@ -50,6 +51,7 @@ void MarketDataService::start()
     }
 
     started_ = true;
+    qInfo() << "[Market] start requested";
     reconnectDelayMs_ = 2000;
     loggedSymbols_.clear();
     connectToServer();
@@ -64,27 +66,30 @@ void MarketDataService::stop()
 
 void MarketDataService::connectToServer()
 {
+    qInfo() << "[Market] connectToServer state=" << websocket_.state()
+            << "started=" << started_;
     if(!started_ || websocket_.state() != QAbstractSocket::UnconnectedState)
     {
         return;
     }
 
-    qInfo() << "[Market] connecting to Binance";
-    websocket_.open(QNetworkRequest(QUrl(QStringLiteral("wss://stream.binance.com:9443/ws"))));
+    qInfo() << "[Market] connecting to Binance USD-M perpetual futures";
+    // fstream 的 BTCUSDT、ETHUSDT 对应 U 本位永续合约，日线边界使用 UTC。
+    websocket_.open(QNetworkRequest(QUrl(QStringLiteral("wss://fstream.binance.com/market/stream"))));
 }
 
 void MarketDataService::subscribe()
 {
-    // 使用一个 WebSocket 连接订阅多个小写 stream，响应中的 symbol 仍为大写。
+    // 使用一个 market/stream 连接订阅两个永续合约；新协议要求请求 ID 为字符串。
     QJsonObject request;
     request.insert(QStringLiteral("method"), QStringLiteral("SUBSCRIBE"));
     request.insert(QStringLiteral("params"),
-                   QJsonArray{QStringLiteral("btcusdt@miniTicker"),
-                              QStringLiteral("ethusdt@miniTicker")});
-    request.insert(QStringLiteral("id"), 1);
+                   QJsonArray{QStringLiteral("btcusdt@kline_1d"),
+                              QStringLiteral("ethusdt@kline_1d")});
+    request.insert(QStringLiteral("id"), QStringLiteral("cryptotray-market"));
 
     websocket_.sendTextMessage(QString::fromUtf8(QJsonDocument(request).toJson(QJsonDocument::Compact)));
-    qInfo() << "[Market] subscribed BTCUSDT ETHUSDT";
+    qInfo() << "[Market] subscribed BTCUSDT ETHUSDT perpetual UTC daily klines";
 }
 
 void MarketDataService::scheduleReconnect()
@@ -113,5 +118,10 @@ void MarketDataService::handleTextMessage(const QString& message)
             qInfo() << "[Market] received first ticker for" << ticker->symbol;
         }
         emit tickerUpdated(*ticker);
+    }
+    else if(message.contains(QStringLiteral("\"id\"")))
+    {
+        // 只记录订阅确认或错误响应，避免正常行情解析失败时刷屏。
+        qInfo() << "[Market] subscription response:" << message.left(500);
     }
 }

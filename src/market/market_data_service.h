@@ -22,6 +22,7 @@ signals:
     void connected();
     void disconnected();
     void connectionStateChanged(bool connected);
+    void connectionError(const QString& message);
 
 private:
     // 服务只负责网络、解析和信号输出，不持有或操作任何 QWidget。

@@ -27,6 +27,14 @@ qt_add_executable(CryptoTray
     src/market/ticker.h
     src/ui/tray_manager.cpp
     src/ui/tray_manager.h
+    src/ui/market_detail_card.cpp
+    src/ui/market_detail_card.h
+    src/ui/taskbar_ticker_widget.cpp
+    src/ui/taskbar_ticker_widget.h
+)
+
+target_include_directories(CryptoTray PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(CryptoTray PRIVATE
@@ -41,7 +49,8 @@ target_compile_options(CryptoTray PRIVATE
 )
 
 set_target_properties(CryptoTray PROPERTIES
-    WIN32_EXECUTABLE "$<CONFIG:Release>"
+    # Debug 和 Release 都使用 Windows GUI 子系统，启动时不创建黑色控制台窗口。
+    WIN32_EXECUTABLE TRUE
 )
 
 include(CTest)

@@ -42,7 +42,28 @@ std::optional<Ticker> parseMarketMessage(const QString& message)
         return std::nullopt;
     }
 
-    const QJsonObject object = document.object();
+    QJsonObject object = document.object();
+    // 合约 market/stream 使用 combined stream 包装，真实行情位于 data 对象中。
+    const QJsonValue combinedData = object.value(QStringLiteral("data"));
+    if(combinedData.isObject())
+    {
+        object = combinedData.toObject();
+    }
+    // UTC 日线消息把价格字段放在 k 对象中，事件时间仍位于外层。
+    const QJsonValue eventType = object.value(QStringLiteral("e"));
+    if(eventType == QStringLiteral("kline"))
+    {
+        const QJsonValue klineValue = object.value(QStringLiteral("k"));
+        if(!klineValue.isObject())
+        {
+            qWarning() << "[Market] ignored kline without payload";
+            return std::nullopt;
+        }
+        QJsonObject kline = klineValue.toObject();
+        kline.insert(QStringLiteral("E"), object.value(QStringLiteral("E")));
+        object = kline;
+    }
+
     const QJsonValue symbolValue = object.value(QStringLiteral("s"));
     const QJsonValue eventTimeValue = object.value(QStringLiteral("E"));
     if(!symbolValue.isString() || symbolValue.toString().isEmpty() || !eventTimeValue.isDouble())
