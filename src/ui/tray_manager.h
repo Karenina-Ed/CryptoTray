@@ -1,5 +1,6 @@
 #pragma once
 
+#include "account/futures_position.h"
 #include "market/ticker.h"
 
 #include <QObject>
@@ -18,6 +19,13 @@ public:
     void updateTicker(const Ticker& ticker);
     void setConnected(bool connected);
     void setConnectionError(const QString& message);
+    void setPositions(const FuturesPositions& positions);
+    void setAccountOverview(const FuturesAccountOverview& overview);
+    void setAccountState(bool configured, const QString& message);
+
+signals:
+    void credentialsSaveRequested(const QString& apiKey, const QString& secretKey);
+    void credentialsDeleteRequested();
 
 private:
     // 长条组件是唯一界面，右键菜单和退出操作由组件自身负责。

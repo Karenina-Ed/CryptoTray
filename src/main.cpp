@@ -1,3 +1,4 @@
+#include "account/account_position_service.h"
 #include "market/market_data_service.h"
 #include "ui/tray_manager.h"
 
@@ -49,24 +50,43 @@ int main(int argc, char* argv[])
     instanceLock.setStaleLockTime(0);
     if(!instanceLock.tryLock(100))
     {
-        return 0;
+        // 异常崩溃会留下锁文件；Windows 会阻止删除仍由存活进程持有的锁，
+        // 因此这里只恢复已确认无主的锁，不会绕过正常的单实例保护。
+        const bool recovered = instanceLock.error() == QLockFile::LockFailedError
+            && instanceLock.removeStaleLockFile() && instanceLock.tryLock(100);
+        if(!recovered)
+        {
+            return 0;
+        }
     }
 
     TrayManager trayManager;
 
     // 行情服务与界面通过信号连接，网络层不直接持有或操作 QWidget。
     MarketDataService marketService;
+    AccountPositionService accountService;
     QObject::connect(&marketService, &MarketDataService::tickerUpdated,
                      &trayManager, &TrayManager::updateTicker);
     QObject::connect(&marketService, &MarketDataService::connectionStateChanged,
                      &trayManager, &TrayManager::setConnected);
     QObject::connect(&marketService, &MarketDataService::connectionError,
                      &trayManager, &TrayManager::setConnectionError);
+    QObject::connect(&accountService, &AccountPositionService::positionsUpdated,
+                     &trayManager, &TrayManager::setPositions);
+    QObject::connect(&accountService, &AccountPositionService::accountOverviewUpdated,
+                     &trayManager, &TrayManager::setAccountOverview);
+    QObject::connect(&accountService, &AccountPositionService::accountStateChanged,
+                     &trayManager, &TrayManager::setAccountState);
+    QObject::connect(&trayManager, &TrayManager::credentialsSaveRequested,
+                     &accountService, &AccountPositionService::saveCredentials);
+    QObject::connect(&trayManager, &TrayManager::credentialsDeleteRequested,
+                     &accountService, &AccountPositionService::deleteCredentials);
     trayManager.show();
     // 任务栏子窗口完成挂载且事件循环启动后再建立连接，避免初始化阶段丢失异步套接字事件。
-    QTimer::singleShot(0, &app, [&marketService]() {
-        qInfo() << "[App] event loop started; starting market service";
+    QTimer::singleShot(0, &app, [&marketService, &accountService]() {
+        qInfo() << "[App] event loop started; starting services";
         marketService.start();
+        accountService.start();
     });
 
     return app.exec();

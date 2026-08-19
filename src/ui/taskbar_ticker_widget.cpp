@@ -7,9 +7,15 @@
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QScreen>
 #include <QStyle>
 #include <QTimer>
@@ -145,6 +151,21 @@ void TaskbarTickerWidget::setConnectionError(const QString& message)
     refreshDisplay();
 }
 
+void TaskbarTickerWidget::setPositions(const FuturesPositions& positions)
+{
+    detailCard_->setPositions(positions);
+}
+
+void TaskbarTickerWidget::setAccountOverview(const FuturesAccountOverview& overview)
+{
+    detailCard_->setAccountOverview(overview);
+}
+
+void TaskbarTickerWidget::setAccountState(bool configured, const QString& message)
+{
+    detailCard_->setAccountState(configured, message);
+}
+
 void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)
 {
     QMenu menu(this);
@@ -152,9 +173,85 @@ void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)
         "QMenu { background: #111111; color: white; border: 1px solid #2b2b2b; padding: 6px; }"
         "QMenu::item { padding: 7px 26px; border-radius: 4px; }"
         "QMenu::item:selected { background: #242424; }"));
+    QAction* configureAction = menu.addAction(QStringLiteral("配置 Binance API"));
+    QAction* deleteAction = menu.addAction(QStringLiteral("删除 API 凭据"));
+    menu.addSeparator();
     QAction* exitAction = menu.addAction(QStringLiteral("退出 CryptoTray"));
+    connect(configureAction, &QAction::triggered,
+            this, &TaskbarTickerWidget::showCredentialDialog);
+    connect(deleteAction, &QAction::triggered, this, [this]() {
+        const auto answer = QMessageBox::question(
+            nullptr, QStringLiteral("删除 API 凭据"),
+            QStringLiteral("确定从 Windows 凭据管理器中删除 Binance API 凭据吗？"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if(answer == QMessageBox::Yes)
+        {
+            emit credentialsDeleteRequested();
+        }
+    });
     connect(exitAction, &QAction::triggered, qApp, &QApplication::quit);
     menu.exec(event->globalPos());
+}
+
+void TaskbarTickerWidget::showCredentialDialog()
+{
+    // 任务栏窗口已成为 Explorer 子窗口，配置窗口必须保持独立顶层，避免被任务栏裁剪。
+    QDialog dialog(nullptr);
+    dialog.setWindowTitle(QStringLiteral("配置 Binance API"));
+    dialog.setModal(true);
+    dialog.setMinimumWidth(420);
+    dialog.setStyleSheet(QStringLiteral(
+        "QDialog { background:#101114; color:#f4f4f5; }"
+        "QLabel { color:#a7acb6; font-family:'Segoe UI Variable Text','Segoe UI'; }"
+        "QLineEdit { color:#f4f4f5; background:#181a20; border:1px solid #30333b; "
+        "border-radius:8px; padding:9px 10px; selection-background-color:#17c964; }"
+        "QLineEdit:focus { border-color:#17c964; }"
+        "QPushButton { color:#f4f4f5; background:#24272e; border:none; border-radius:8px; "
+        "padding:8px 18px; }"
+        "QPushButton:hover { background:#30343c; }"
+        "QPushButton:default { color:#07130c; background:#17c964; font-weight:700; }"));
+
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(20, 18, 20, 18);
+    root->setSpacing(14);
+    auto* description = new QLabel(
+        QStringLiteral("凭据将加密保存在当前 Windows 用户的凭据管理器中。\n"
+                       "建议使用仅具备账户读取权限的独立密钥。"), &dialog);
+    description->setWordWrap(true);
+    root->addWidget(description);
+
+    auto* form = new QFormLayout();
+    form->setSpacing(10);
+    auto* apiKey = new QLineEdit(&dialog);
+    apiKey->setPlaceholderText(QStringLiteral("API Key"));
+    auto* secret = new QLineEdit(&dialog);
+    secret->setPlaceholderText(QStringLiteral("HMAC Secret"));
+    secret->setEchoMode(QLineEdit::Password);
+    form->addRow(QStringLiteral("API Key"), apiKey);
+    form->addRow(QStringLiteral("Secret"), secret);
+    root->addLayout(form);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,
+                                         Qt::Horizontal, &dialog);
+    buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, apiKey, secret]() {
+        if(apiKey->text().trimmed().isEmpty() || secret->text().trimmed().isEmpty())
+        {
+            QMessageBox::warning(&dialog, QStringLiteral("无法保存"),
+                                 QStringLiteral("API Key 和 HMAC Secret 不能为空。"));
+            return;
+        }
+        dialog.accept();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    root->addWidget(buttons);
+
+    if(dialog.exec() == QDialog::Accepted)
+    {
+        emit credentialsSaveRequested(apiKey->text().trimmed(), secret->text().trimmed());
+        secret->clear();
+    }
 }
 
 void TaskbarTickerWidget::mousePressEvent(QMouseEvent* event)

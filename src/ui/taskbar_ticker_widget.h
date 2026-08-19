@@ -1,5 +1,6 @@
 #pragma once
 
+#include "account/futures_position.h"
 #include "market/ticker.h"
 
 #include <QHash>
@@ -25,9 +26,14 @@ public:
     void updateTicker(const Ticker& ticker);
     void setConnected(bool connected);
     void setConnectionError(const QString& message);
+    void setPositions(const FuturesPositions& positions);
+    void setAccountOverview(const FuturesAccountOverview& overview);
+    void setAccountState(bool configured, const QString& message);
 
 signals:
     void embedStateChanged(bool embedded);
+    void credentialsSaveRequested(const QString& apiKey, const QString& secretKey);
+    void credentialsDeleteRequested();
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -46,6 +52,7 @@ private:
     bool embedIntoTaskbar();
     void refreshDisplay();
     void toggleDetailCard();
+    void showCredentialDialog();
 
     RowWidgets btcRow_;
     RowWidgets ethRow_;

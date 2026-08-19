@@ -6,6 +6,10 @@ TrayManager::TrayManager(QObject* parent)
     : QObject(parent)
     , taskbarWidget_(new TaskbarTickerWidget())
 {
+    connect(taskbarWidget_, &TaskbarTickerWidget::credentialsSaveRequested,
+            this, &TrayManager::credentialsSaveRequested);
+    connect(taskbarWidget_, &TaskbarTickerWidget::credentialsDeleteRequested,
+            this, &TrayManager::credentialsDeleteRequested);
 }
 
 TrayManager::~TrayManager()
@@ -26,6 +30,21 @@ void TrayManager::setConnected(bool connected)
 void TrayManager::setConnectionError(const QString& message)
 {
     taskbarWidget_->setConnectionError(message);
+}
+
+void TrayManager::setPositions(const FuturesPositions& positions)
+{
+    taskbarWidget_->setPositions(positions);
+}
+
+void TrayManager::setAccountOverview(const FuturesAccountOverview& overview)
+{
+    taskbarWidget_->setAccountOverview(overview);
+}
+
+void TrayManager::setAccountState(bool configured, const QString& message)
+{
+    taskbarWidget_->setAccountState(configured, message);
 }
 
 void TrayManager::show()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "account/futures_position.h"
 #include "market/ticker.h"
 
 #include <QHash>
@@ -16,6 +17,9 @@ public:
 
     void updateTicker(const Ticker& ticker);
     void setConnectionState(bool connected, const QString& errorMessage = {});
+    void setPositions(const FuturesPositions& positions);
+    void setAccountOverview(const FuturesAccountOverview& overview);
+    void setAccountState(bool configured, const QString& message);
 
 private:
     struct CoinWidgets
@@ -31,12 +35,18 @@ private:
 
     void addCoinSection(QVBoxLayout* layout, const QString& symbol, CoinWidgets& widgets);
     void refreshCoin(const QString& symbol, CoinWidgets& widgets);
+    void refreshPositions();
 
     CoinWidgets btcWidgets_;
     CoinWidgets ethWidgets_;
-    QLabel* connectionBadge_ = nullptr;
-    QLabel* footer_ = nullptr;
+    QLabel* accountStatus_ = nullptr;
+    QLabel* usdBalance_ = nullptr;
+    QLabel* usdPnl_ = nullptr;
+    QLabel* coinBalance_ = nullptr;
+    QLabel* coinPnl_ = nullptr;
+    QVBoxLayout* usdPositionsLayout_ = nullptr;
+    QVBoxLayout* coinPositionsLayout_ = nullptr;
     QHash<QString, Ticker> tickers_;
+    FuturesPositions positions_;
     bool connected_ = false;
-    QString errorMessage_;
 };

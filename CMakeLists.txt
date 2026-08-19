@@ -13,6 +13,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Core
     Gui
     Widgets
+    Network
     WebSockets
 )
 
@@ -20,6 +21,11 @@ qt_standard_project_setup()
 
 qt_add_executable(CryptoTray
     src/main.cpp
+    src/account/account_position_service.cpp
+    src/account/account_position_service.h
+    src/account/credential_store.cpp
+    src/account/credential_store.h
+    src/account/futures_position.h
     src/market/market_data_service.cpp
     src/market/market_data_service.h
     src/market/market_message_parser.cpp
@@ -41,8 +47,13 @@ target_link_libraries(CryptoTray PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::Network
     Qt6::WebSockets
 )
+
+if(WIN32)
+    target_link_libraries(CryptoTray PRIVATE Advapi32)
+endif()
 
 target_compile_options(CryptoTray PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
