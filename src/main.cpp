@@ -71,6 +71,14 @@ int main(int argc, char* argv[])
                      &trayManager, &TrayManager::setConnected);
     QObject::connect(&marketService, &MarketDataService::connectionError,
                      &trayManager, &TrayManager::setConnectionError);
+    QObject::connect(&trayManager, &TrayManager::watchlistChangeRequested,
+                     &marketService, &MarketDataService::setWatchlist);
+    QObject::connect(&marketService, &MarketDataService::watchlistChanged,
+                     &trayManager, &TrayManager::setWatchlist);
+    QObject::connect(&marketService, &MarketDataService::availableSymbolsChanged,
+                     &trayManager, &TrayManager::setAvailableSymbols);
+    QObject::connect(&marketService, &MarketDataService::cnyRateUpdated,
+                     &trayManager, &TrayManager::setCnyRate);
     QObject::connect(&accountService, &AccountPositionService::positionsUpdated,
                      &trayManager, &TrayManager::setPositions);
     QObject::connect(&accountService, &AccountPositionService::accountOverviewUpdated,
@@ -81,6 +89,7 @@ int main(int argc, char* argv[])
                      &accountService, &AccountPositionService::saveCredentials);
     QObject::connect(&trayManager, &TrayManager::credentialsDeleteRequested,
                      &accountService, &AccountPositionService::deleteCredentials);
+    trayManager.setWatchlist(marketService.watchlist());
     trayManager.show();
     // 任务栏子窗口完成挂载且事件循环启动后再建立连接，避免初始化阶段丢失异步套接字事件。
     QTimer::singleShot(0, &app, [&marketService, &accountService]() {

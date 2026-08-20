@@ -25,6 +25,8 @@ struct FuturesPosition
     double markPrice = 0.0;
     double strikePrice = 0.0;
     double unrealizedProfit = 0.0;
+    // 收益率以同一结算资产下的未实现盈亏 / 持仓初始保证金计算。
+    double initialMargin = 0.0;
     double liquidationPrice = 0.0;
     qint64 expiryDate = 0;
     int leverage = 0;

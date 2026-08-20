@@ -4,6 +4,7 @@
 #include "market/ticker.h"
 
 #include <QHash>
+#include <QStringList>
 #include <QWidget>
 
 #include <memory>
@@ -30,11 +31,15 @@ public:
     void setPositions(const FuturesPositions& positions);
     void setAccountOverview(const FuturesAccountOverview& overview);
     void setAccountState(bool configured, const QString& message);
+    void setWatchlist(const QStringList& symbols);
+    void setAvailableSymbols(const QStringList& symbols);
+    void setCnyRate(double cnyPerUsdt);
 
 signals:
     void embedStateChanged(bool embedded);
     void credentialsSaveRequested(const QString& apiKey, const QString& secretKey);
     void credentialsDeleteRequested();
+    void watchlistChangeRequested(const QStringList& symbols);
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;

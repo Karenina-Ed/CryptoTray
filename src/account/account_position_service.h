@@ -34,6 +34,7 @@ private:
     enum class RequestKind
     {
         Positions,
+        SymbolConfiguration,
         Account,
         SpotAccount,
         OptionsAccount,
@@ -63,6 +64,8 @@ private:
     QHash<QString, double> pendingFlexibleEarnBalances_;
     QHash<QString, double> pendingLockedEarnBalances_;
     QHash<QString, double> pendingUsdtPrices_;
+    QHash<QString, int> pendingUsdLeverages_;
+    QHash<QString, double> pendingCoinInitialMargins_;
     QStringList pendingErrors_;
     int pendingReplies_ = 0;
     int credentialRevision_ = 0;

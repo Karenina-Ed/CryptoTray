@@ -37,6 +37,11 @@ QString positionSide(const QJsonObject& object, double amount)
     return amount >= 0.0 ? QStringLiteral("LONG") : QStringLiteral("SHORT");
 }
 
+QString positionKey(const QString& symbol, const QString& side)
+{
+    return symbol + QLatin1Char('|') + side;
+}
+
 }
 
 AccountPositionService::AccountPositionService(QObject* parent)
@@ -147,6 +152,8 @@ void AccountPositionService::refresh()
     pendingFlexibleEarnBalances_.clear();
     pendingLockedEarnBalances_.clear();
     pendingUsdtPrices_.clear();
+    pendingUsdLeverages_.clear();
+    pendingCoinInitialMargins_.clear();
     usdAccountReceived_ = false;
     coinAccountReceived_ = false;
     spotAccountReceived_ = false;
@@ -155,7 +162,7 @@ void AccountPositionService::refresh()
     lockedEarnReceived_ = false;
     earnPositionsTruncated_ = false;
     pricesReceived_ = false;
-    pendingReplies_ = 10;
+    pendingReplies_ = 11;
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Positions,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/positionRisk"));
@@ -165,6 +172,10 @@ void AccountPositionService::refresh()
     sendRequest(FuturesMarket::Options, RequestKind::Positions,
                 QStringLiteral("https://eapi.binance.com"),
                 QStringLiteral("/eapi/v1/position"));
+    // positionRisk V3 不再返回 leverage，按 symbolConfig 的账户配置补回实际初始杠杆。
+    sendRequest(FuturesMarket::UsdMargined, RequestKind::SymbolConfiguration,
+                QStringLiteral("https://fapi.binance.com"),
+                QStringLiteral("/fapi/v1/symbolConfig"));
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Account,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/account"));
@@ -232,7 +243,8 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
     }
     const QByteArray payload = reply->readAll();
     const QJsonDocument document = QJsonDocument::fromJson(payload);
-    const bool expectedShape = kind == RequestKind::Positions || kind == RequestKind::Prices
+    const bool expectedShape = kind == RequestKind::Positions
+            || kind == RequestKind::SymbolConfiguration || kind == RequestKind::Prices
         ? document.isArray()
         : document.isObject();
     if(reply->error() != QNetworkReply::NoError || !expectedShape)
@@ -245,7 +257,9 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
                 .arg(error.value(QStringLiteral("msg")).toString())
                 .arg(error.value(QStringLiteral("code")).toInt());
         }
-        const QString sourceName = kind == RequestKind::SpotAccount
+        const QString sourceName = kind == RequestKind::SymbolConfiguration
+            ? QStringLiteral("U 本位杠杆配置")
+            : kind == RequestKind::SpotAccount
             ? QStringLiteral("现货账户")
             : kind == RequestKind::OptionsAccount
                 ? QStringLiteral("期权账户")
@@ -295,10 +309,26 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             position.unrealizedProfit = object.value(
                 isOption ? QStringLiteral("unrealizedPNL")
                          : QStringLiteral("unRealizedProfit")).toString().toDouble();
+            position.initialMargin = object.value(
+                QStringLiteral("positionInitialMargin")).toString().toDouble();
             position.liquidationPrice = object.value(QStringLiteral("liquidationPrice")).toString().toDouble();
             position.expiryDate = object.value(QStringLiteral("expiryDate")).toVariant().toLongLong();
-            position.leverage = object.value(QStringLiteral("leverage")).toString().toInt();
+            // 币本位接口仍返回字符串；toVariant() 同时兼容字符串和数字字段。
+            position.leverage = object.value(QStringLiteral("leverage")).toVariant().toInt();
             pendingPositions_.append(position);
+        }
+    }
+    else if(kind == RequestKind::SymbolConfiguration)
+    {
+        for(const QJsonValue& value : document.array())
+        {
+            const QJsonObject configuration = value.toObject();
+            const QString symbol = configuration.value(QStringLiteral("symbol")).toString();
+            const int leverage = configuration.value(QStringLiteral("leverage")).toInt();
+            if(!symbol.isEmpty() && leverage > 0)
+            {
+                pendingUsdLeverages_.insert(symbol, leverage);
+            }
         }
     }
     else if(kind == RequestKind::Account)
@@ -329,6 +359,21 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
                 {
                     pendingOverview_.coinAssets.append(balance);
                 }
+            }
+            for(const QJsonValue& value : account.value(QStringLiteral("positions")).toArray())
+            {
+                const QJsonObject position = value.toObject();
+                const double amount = position.value(QStringLiteral("positionAmt"))
+                                          .toString().toDouble();
+                const double initialMargin = position.value(
+                    QStringLiteral("positionInitialMargin")).toString().toDouble();
+                if(std::abs(amount) < 1e-12 || initialMargin <= 0.0)
+                {
+                    continue;
+                }
+                const QString symbol = position.value(QStringLiteral("symbol")).toString();
+                pendingCoinInitialMargins_.insert(
+                    positionKey(symbol, positionSide(position, amount)), initialMargin);
             }
         }
     }
@@ -412,6 +457,19 @@ void AccountPositionService::finishRefresh()
         return;
     }
 
+    // 两个请求异步完成，统一在本轮全部结束后合并，避免依赖响应先后顺序。
+    for(FuturesPosition& position : pendingPositions_)
+    {
+        if(position.market == FuturesMarket::UsdMargined)
+        {
+            position.leverage = pendingUsdLeverages_.value(position.symbol, 0);
+        }
+        else if(position.market == FuturesMarket::CoinMargined)
+        {
+            position.initialMargin = pendingCoinInitialMargins_.value(
+                positionKey(position.symbol, position.side), 0.0);
+        }
+    }
     calculateEstimatedTotal();
     emit positionsUpdated(pendingPositions_);
     emit accountOverviewUpdated(pendingOverview_);

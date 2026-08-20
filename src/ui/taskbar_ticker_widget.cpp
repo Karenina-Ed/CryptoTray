@@ -99,6 +99,8 @@ TaskbarTickerWidget::TaskbarTickerWidget(QWidget* parent)
     addGroup(QStringLiteral("ETH"), ethRow_);
 
     attachTimer_->setInterval(2000);
+    connect(detailCard_.get(), &MarketDetailCard::watchlistChangeRequested,
+            this, &TaskbarTickerWidget::watchlistChangeRequested);
     connect(attachTimer_, &QTimer::timeout, this, [this]() {
         const bool nowEmbedded = embedIntoTaskbar();
         if(nowEmbedded != embedded_)
@@ -166,6 +168,21 @@ void TaskbarTickerWidget::setAccountOverview(const FuturesAccountOverview& overv
 void TaskbarTickerWidget::setAccountState(bool configured, const QString& message)
 {
     detailCard_->setAccountState(configured, message);
+}
+
+void TaskbarTickerWidget::setWatchlist(const QStringList& symbols)
+{
+    detailCard_->setWatchlist(symbols);
+}
+
+void TaskbarTickerWidget::setAvailableSymbols(const QStringList& symbols)
+{
+    detailCard_->setAvailableSymbols(symbols);
+}
+
+void TaskbarTickerWidget::setCnyRate(double cnyPerUsdt)
+{
+    detailCard_->setCnyRate(cnyPerUsdt);
 }
 
 void TaskbarTickerWidget::contextMenuEvent(QContextMenuEvent* event)

@@ -10,6 +10,8 @@ TrayManager::TrayManager(QObject* parent)
             this, &TrayManager::credentialsSaveRequested);
     connect(taskbarWidget_, &TaskbarTickerWidget::credentialsDeleteRequested,
             this, &TrayManager::credentialsDeleteRequested);
+    connect(taskbarWidget_, &TaskbarTickerWidget::watchlistChangeRequested,
+            this, &TrayManager::watchlistChangeRequested);
 }
 
 TrayManager::~TrayManager()
@@ -45,6 +47,21 @@ void TrayManager::setAccountOverview(const FuturesAccountOverview& overview)
 void TrayManager::setAccountState(bool configured, const QString& message)
 {
     taskbarWidget_->setAccountState(configured, message);
+}
+
+void TrayManager::setWatchlist(const QStringList& symbols)
+{
+    taskbarWidget_->setWatchlist(symbols);
+}
+
+void TrayManager::setAvailableSymbols(const QStringList& symbols)
+{
+    taskbarWidget_->setAvailableSymbols(symbols);
+}
+
+void TrayManager::setCnyRate(double cnyPerUsdt)
+{
+    taskbarWidget_->setCnyRate(cnyPerUsdt);
 }
 
 void TrayManager::show()
