@@ -897,13 +897,30 @@ void MarketDetailCard::refreshPositions()
                 headline->addWidget(optionSide);
             }
             headline->addStretch();
-            const QString amountText = position.market == FuturesMarket::Options
-                ? formatCompactNumber(std::abs(position.amount))
-                : QStringLiteral("%1 · %2")
-                      .arg(formatCompactNumber(std::abs(position.amount)),
-                           position.leverage > 0
-                               ? QStringLiteral("%1x").arg(position.leverage)
-                               : QStringLiteral("--"));
+            QString amountText;
+            if(position.market == FuturesMarket::Options)
+            {
+                amountText = formatCompactNumber(std::abs(position.amount));
+            }
+            else
+            {
+                const QString leverage = position.leverage > 0
+                    ? QStringLiteral("%1x").arg(position.leverage)
+                    : QStringLiteral("--");
+                if(position.market == FuturesMarket::CoinMargined)
+                {
+                    const QString coinAmount = std::abs(position.baseAssetAmount) > 1e-12
+                        ? formatCompactNumber(std::abs(position.baseAssetAmount))
+                        : QStringLiteral("--");
+                    amountText = QStringLiteral("%1 %2 · %3")
+                                     .arg(coinAmount, position.profitAsset, leverage);
+                }
+                else
+                {
+                    amountText = QStringLiteral("%1 · %2")
+                                     .arg(formatCompactNumber(std::abs(position.amount)), leverage);
+                }
+            }
             auto* amount = new QLabel(amountText, row);
             amount->setProperty("role", "positionMeta");
             headline->addWidget(amount);

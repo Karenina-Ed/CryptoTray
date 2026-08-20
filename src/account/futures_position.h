@@ -21,6 +21,8 @@ struct FuturesPosition
     QString profitAsset;
     QString optionSide;
     double amount = 0.0;
+    // 币本位接口的 amount 是合约张数，baseAssetAmount 保存按标记价格折算后的币种数量。
+    double baseAssetAmount = 0.0;
     double entryPrice = 0.0;
     double markPrice = 0.0;
     double strikePrice = 0.0;

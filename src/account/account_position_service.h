@@ -40,7 +40,8 @@ private:
         OptionsAccount,
         FlexibleEarn,
         LockedEarn,
-        Prices
+        Prices,
+        CoinExchangeInfo
     };
 
     void refresh();
@@ -48,6 +49,7 @@ private:
                      const QString& baseUrl, const QString& path,
                      const QByteArray& extraQuery = {});
     void sendPublicPricesRequest();
+    void sendCoinExchangeInfoRequest();
     void handleReply(QNetworkReply* reply, FuturesMarket market, RequestKind kind,
                      int credentialRevision);
     void finishRefresh();
@@ -66,6 +68,7 @@ private:
     QHash<QString, double> pendingUsdtPrices_;
     QHash<QString, int> pendingUsdLeverages_;
     QHash<QString, double> pendingCoinInitialMargins_;
+    QHash<QString, double> pendingCoinContractSizes_;
     QStringList pendingErrors_;
     int pendingReplies_ = 0;
     int credentialRevision_ = 0;

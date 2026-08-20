@@ -154,6 +154,7 @@ void AccountPositionService::refresh()
     pendingUsdtPrices_.clear();
     pendingUsdLeverages_.clear();
     pendingCoinInitialMargins_.clear();
+    pendingCoinContractSizes_.clear();
     usdAccountReceived_ = false;
     coinAccountReceived_ = false;
     spotAccountReceived_ = false;
@@ -162,7 +163,7 @@ void AccountPositionService::refresh()
     lockedEarnReceived_ = false;
     earnPositionsTruncated_ = false;
     pricesReceived_ = false;
-    pendingReplies_ = 11;
+    pendingReplies_ = 12;
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Positions,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/positionRisk"));
@@ -197,6 +198,7 @@ void AccountPositionService::refresh()
                 QStringLiteral("/sapi/v1/simple-earn/locked/position"),
                 QByteArrayLiteral("current=1&size=100"));
     sendPublicPricesRequest();
+    sendCoinExchangeInfoRequest();
 }
 
 void AccountPositionService::sendRequest(FuturesMarket market, RequestKind kind,
@@ -233,6 +235,17 @@ void AccountPositionService::sendPublicPricesRequest()
     });
 }
 
+void AccountPositionService::sendCoinExchangeInfoRequest()
+{
+    QNetworkReply* reply = network_.get(
+        QNetworkRequest(QUrl(QStringLiteral("https://dapi.binance.com/dapi/v1/exchangeInfo"))));
+    const int revision = credentialRevision_;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, revision]() {
+        handleReply(reply, FuturesMarket::CoinMargined,
+                    RequestKind::CoinExchangeInfo, revision);
+    });
+}
+
 void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket market,
                                          RequestKind kind, int credentialRevision)
 {
@@ -259,6 +272,8 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
         }
         const QString sourceName = kind == RequestKind::SymbolConfiguration
             ? QStringLiteral("U 本位杠杆配置")
+            : kind == RequestKind::CoinExchangeInfo
+                ? QStringLiteral("币本位合约信息")
             : kind == RequestKind::SpotAccount
             ? QStringLiteral("现货账户")
             : kind == RequestKind::OptionsAccount
@@ -444,6 +459,20 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             }
         }
     }
+    else if(kind == RequestKind::CoinExchangeInfo)
+    {
+        for(const QJsonValue& value : document.object().value(QStringLiteral("symbols")).toArray())
+        {
+            const QJsonObject symbol = value.toObject();
+            const QString name = symbol.value(QStringLiteral("symbol")).toString();
+            const double contractSize = symbol.value(
+                QStringLiteral("contractSize")).toVariant().toDouble();
+            if(!name.isEmpty() && contractSize > 0.0)
+            {
+                pendingCoinContractSizes_.insert(name, contractSize);
+            }
+        }
+    }
 
     reply->deleteLater();
     --pendingReplies_;
@@ -468,6 +497,12 @@ void AccountPositionService::finishRefresh()
         {
             position.initialMargin = pendingCoinInitialMargins_.value(
                 positionKey(position.symbol, position.side), 0.0);
+            const double contractSize = pendingCoinContractSizes_.value(position.symbol, 0.0);
+            if(contractSize > 0.0 && position.markPrice > 0.0)
+            {
+                // COIN-M 为反向合约：美元合约价值除以标记价格即为基础币数量。
+                position.baseAssetAmount = position.amount * contractSize / position.markPrice;
+            }
         }
     }
     calculateEstimatedTotal();
