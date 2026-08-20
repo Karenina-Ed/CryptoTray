@@ -2,6 +2,7 @@
 
 #include "futures_position.h"
 
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTimer>
@@ -33,15 +34,23 @@ private:
     enum class RequestKind
     {
         Positions,
-        Account
+        Account,
+        SpotAccount,
+        OptionsAccount,
+        FlexibleEarn,
+        LockedEarn,
+        Prices
     };
 
     void refresh();
     void sendRequest(FuturesMarket market, RequestKind kind,
-                     const QString& baseUrl, const QString& path);
+                     const QString& baseUrl, const QString& path,
+                     const QByteArray& extraQuery = {});
+    void sendPublicPricesRequest();
     void handleReply(QNetworkReply* reply, FuturesMarket market, RequestKind kind,
                      int credentialRevision);
     void finishRefresh();
+    void calculateEstimatedTotal();
 
     QNetworkAccessManager network_;
     QTimer refreshTimer_;
@@ -49,8 +58,21 @@ private:
     QByteArray secretKey_;
     FuturesPositions pendingPositions_;
     FuturesAccountOverview pendingOverview_;
+    QHash<QString, double> pendingSpotBalances_;
+    QHash<QString, double> pendingOptionEquities_;
+    QHash<QString, double> pendingFlexibleEarnBalances_;
+    QHash<QString, double> pendingLockedEarnBalances_;
+    QHash<QString, double> pendingUsdtPrices_;
     QStringList pendingErrors_;
     int pendingReplies_ = 0;
     int credentialRevision_ = 0;
     bool started_ = false;
+    bool usdAccountReceived_ = false;
+    bool coinAccountReceived_ = false;
+    bool spotAccountReceived_ = false;
+    bool optionsAccountReceived_ = false;
+    bool flexibleEarnReceived_ = false;
+    bool lockedEarnReceived_ = false;
+    bool earnPositionsTruncated_ = false;
+    bool pricesReceived_ = false;
 };

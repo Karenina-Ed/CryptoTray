@@ -7,14 +7,18 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
+#include <QPainterPath>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QPushButton>
 #include <QStyle>
+#include <QToolButton>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -70,6 +74,28 @@ QLabel* createMetricLabel(const QString& caption, QGridLayout* grid, int column)
     grid->addWidget(value, 1, column);
     return value;
 }
+
+QIcon visibilityIcon(bool visible)
+{
+    QPixmap pixmap(20, 20);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(QPen(QColor(QStringLiteral("#8f949e")), 1.6,
+                        Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+
+    QPainterPath eye;
+    eye.moveTo(2.0, 10.0);
+    eye.cubicTo(5.5, 4.8, 14.5, 4.8, 18.0, 10.0);
+    eye.cubicTo(14.5, 15.2, 5.5, 15.2, 2.0, 10.0);
+    painter.drawPath(eye);
+    painter.drawEllipse(QPointF(10.0, 10.0), 2.4, 2.4);
+    if(!visible)
+    {
+        painter.drawLine(QPointF(3.0, 17.0), QPointF(17.0, 3.0));
+    }
+    return QIcon(pixmap);
+}
 }
 
 MarketDetailCard::MarketDetailCard(QWidget* parent)
@@ -99,9 +125,16 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
         "QLabel[role='updated'] { color: #686e78; font-size: 10px; }"
         "QLabel[role='sectionTitle'] { color: #f4f4f5; font-size: 13px; font-weight: 700; }"
         "QLabel[role='accountStatus'] { color: #777d88; font-size: 10px; }"
-        "QFrame[role='account'] { background: #15171c; border: 1px solid #24272e; border-radius: 12px; }"
+        "QFrame[role='accountStrip'] { background:#121419; border:1px solid #24272e; border-radius:12px; }"
+        "QFrame[role='accountDivider'] { background:#292c33; border:none; }"
         "QLabel[role='accountTitle'] { color: #8f949e; font-size: 10px; }"
-        "QLabel[role='accountValue'] { color: #f4f4f5; font-size: 16px; font-weight: 700; }"
+        "QLabel[role='accountValue'] { color:#f4f4f5; font-size:15px; font-weight:700; }"
+        "QLabel[role='allocationText'] { color:#777d88; font-size:9px; }"
+        "QFrame[role='allocationTrack'] { background:#1c1f25; border:none; border-radius:2px; }"
+        "QLabel[role='headerTotalCaption'] { color:#717782; font-size:9px; }"
+        "QLabel[role='headerTotalValue'] { color:#f4f4f5; font-size:18px; font-weight:700; }"
+        "QToolButton[role='visibility'] { background:transparent; border:none; border-radius:7px; padding:3px; }"
+        "QToolButton[role='visibility']:hover { background:#20232a; }"
         "QFrame[role='position'] { background: #15171c; border: 1px solid #24272e; border-radius: 10px; }"
         "QLabel[role='positionSymbol'] { color: #f4f4f5; font-size: 12px; font-weight: 700; }"
         "QLabel[role='positionMeta'] { color: #858b96; font-size: 10px; }"
@@ -146,6 +179,40 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
     titles->addWidget(subtitle);
     header->addLayout(titles);
     header->addStretch();
+
+    auto* totalText = new QVBoxLayout();
+    totalText->setSpacing(1);
+    auto* totalCaptionRow = new QHBoxLayout();
+    totalCaptionRow->setSpacing(3);
+    totalCaptionRow->addStretch();
+    auto* totalCaption = new QLabel(QStringLiteral("总资产"), surface);
+    totalCaption->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    totalCaption->setProperty("role", "headerTotalCaption");
+    totalCaptionRow->addWidget(totalCaption);
+
+    visibilityButton_ = new QToolButton(surface);
+    visibilityButton_->setProperty("role", "visibility");
+    visibilityButton_->setCheckable(true);
+    visibilityButton_->setChecked(true);
+    visibilityButton_->setIcon(visibilityIcon(true));
+    visibilityButton_->setIconSize(QSize(16, 16));
+    visibilityButton_->setCursor(Qt::PointingHandCursor);
+    visibilityButton_->setToolTip(QStringLiteral("隐藏总资产"));
+    connect(visibilityButton_, &QToolButton::toggled, this, [this](bool visible) {
+        totalAssetVisible_ = visible;
+        visibilityButton_->setIcon(visibilityIcon(visible));
+        visibilityButton_->setToolTip(visible ? QStringLiteral("隐藏总资产")
+                                              : QStringLiteral("显示总资产"));
+        refreshTotalAsset();
+    });
+    totalCaptionRow->addWidget(visibilityButton_);
+    totalText->addLayout(totalCaptionRow);
+
+    totalBalance_ = new QLabel(QStringLiteral("--"), surface);
+    totalBalance_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    totalBalance_->setProperty("role", "headerTotalValue");
+    totalText->addWidget(totalBalance_);
+    header->addLayout(totalText);
     content->addLayout(header);
 
     auto* pages = new QStackedWidget(surface);
@@ -174,29 +241,62 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
     positionTitle->setProperty("role", "sectionTitle");
     accountColumn->addWidget(positionTitle);
 
-    auto* summaries = new QHBoxLayout();
-    summaries->setSpacing(7);
-    const auto addSummary = [accountPage, summaries](const QString& title, QLabel*& balance,
-                                                     QLabel*& pnl) {
-        auto* frame = new QFrame(accountPage);
-        frame->setProperty("role", "account");
-        auto* layout = new QVBoxLayout(frame);
-        layout->setContentsMargins(10, 7, 10, 7);
+    auto* accountStrip = new QFrame(accountPage);
+    accountStrip->setProperty("role", "accountStrip");
+    auto* summaries = new QHBoxLayout(accountStrip);
+    summaries->setContentsMargins(10, 8, 10, 8);
+    summaries->setSpacing(9);
+    const auto addSummary = [accountStrip, summaries](const QString& title,
+                                                      QLabel*& balance, QLabel*& detail) {
+        auto* layout = new QVBoxLayout();
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(2);
-        auto* caption = new QLabel(title, frame);
+        auto* caption = new QLabel(title, accountStrip);
         caption->setProperty("role", "accountTitle");
         layout->addWidget(caption);
-        balance = new QLabel(QStringLiteral("--"), frame);
+        balance = new QLabel(QStringLiteral("--"), accountStrip);
         balance->setProperty("role", "accountValue");
         layout->addWidget(balance);
-        pnl = new QLabel(QStringLiteral("未实现 --"), frame);
-        pnl->setProperty("role", "positionMeta");
-        layout->addWidget(pnl);
-        summaries->addWidget(frame);
+        detail = new QLabel(QStringLiteral("--"), accountStrip);
+        detail->setProperty("role", "positionMeta");
+        // 次级原币明细允许被压缩，避免多币种文本把固定宽度卡片横向撑开。
+        detail->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        layout->addWidget(detail);
+        summaries->addLayout(layout, 1);
     };
-    addSummary(QStringLiteral("U 本位总资产"), usdBalance_, usdPnl_);
-    addSummary(QStringLiteral("币本位资产"), coinBalance_, coinPnl_);
-    accountColumn->addLayout(summaries);
+    const auto addDivider = [accountStrip, summaries]() {
+        auto* divider = new QFrame(accountStrip);
+        divider->setProperty("role", "accountDivider");
+        divider->setFixedWidth(1);
+        summaries->addWidget(divider);
+    };
+    addSummary(QStringLiteral("U 本位 / USDT"), usdBalance_, usdPnl_);
+    addDivider();
+    addSummary(QStringLiteral("币本位 / USDT"), coinBalance_, coinPnl_);
+    addDivider();
+    addSummary(QStringLiteral("理财 / USDT"), earnBalance_, earnDetail_);
+    accountColumn->addWidget(accountStrip);
+
+    allocationText_ = new QLabel(QStringLiteral("资产占比 --"), accountPage);
+    allocationText_->setProperty("role", "allocationText");
+    accountColumn->addWidget(allocationText_);
+    auto* allocationTrack = new QFrame(accountPage);
+    allocationTrack->setProperty("role", "allocationTrack");
+    allocationTrack->setFixedHeight(4);
+    allocationLayout_ = new QHBoxLayout(allocationTrack);
+    allocationLayout_->setContentsMargins(0, 0, 0, 0);
+    allocationLayout_->setSpacing(1);
+    const auto addSegment = [allocationTrack, this](const QString& color, QFrame*& segment) {
+        segment = new QFrame(allocationTrack);
+        segment->setStyleSheet(QStringLiteral("background:%1;border:none;border-radius:2px;")
+                                   .arg(color));
+        allocationLayout_->addWidget(segment);
+    };
+    addSegment(QStringLiteral("#17c964"), usdAllocationSegment_);
+    addSegment(QStringLiteral("#3b82f6"), coinAllocationSegment_);
+    addSegment(QStringLiteral("#a970ff"), earnAllocationSegment_);
+    addSegment(QStringLiteral("#5d6470"), otherAllocationSegment_);
+    accountColumn->addWidget(allocationTrack);
 
     accountStatus_ = new QLabel(accountPage);
     accountStatus_->setProperty("role", "accountStatus");
@@ -315,9 +415,11 @@ void MarketDetailCard::setPositions(const FuturesPositions& positions)
 
 void MarketDetailCard::setAccountOverview(const FuturesAccountOverview& overview)
 {
-    usdBalance_->setText(QStringLiteral("%1 USD")
-                             .arg(formatCompactNumber(overview.usdMarginBalance)));
-    usdPnl_->setText(QStringLiteral("未实现 %1%2 USD")
+    accountOverview_ = overview;
+    refreshTotalAsset();
+
+    usdBalance_->setText(formatCompactNumber(overview.usdMarginBalance));
+    usdPnl_->setText(QStringLiteral("PnL %1%2")
                          .arg(overview.usdUnrealizedProfit >= 0.0 ? QStringLiteral("+") : QString())
                          .arg(formatCompactNumber(overview.usdUnrealizedProfit)));
     usdPnl_->setStyleSheet(overview.usdUnrealizedProfit >= 0.0
@@ -335,12 +437,93 @@ void MarketDetailCard::setAccountOverview(const FuturesAccountOverview& overview
                                 asset.unrealizedProfit >= 0.0 ? QStringLiteral("+") : QString(),
                                 formatCompactNumber(asset.unrealizedProfit)));
     }
-    coinBalance_->setText(balances.isEmpty() ? QStringLiteral("暂无资产")
-                                             : balances.join(QStringLiteral(" · ")));
-    coinBalance_->setStyleSheet(balances.size() > 1 ? QStringLiteral("font-size:12px;")
-                                                    : QString());
-    coinPnl_->setText(profits.isEmpty() ? QStringLiteral("未实现 --")
-                                        : profits.join(QStringLiteral(" · ")));
+    coinBalance_->setText(formatCompactNumber(overview.coinEstimatedUsdt));
+    coinPnl_->setText(balances.isEmpty() ? QStringLiteral("暂无资产")
+                                         : balances.join(QStringLiteral(" · ")));
+    coinPnl_->setToolTip(profits.isEmpty() ? QString() : profits.join(QStringLiteral(" · ")));
+    if(overview.earnValuationAvailable)
+    {
+        earnBalance_->setText(QStringLiteral("%1%2")
+                                  .arg(overview.earnValuationComplete
+                                           ? QString() : QStringLiteral("≈ "))
+                                  .arg(formatCompactNumber(overview.earnEstimatedUsdt)));
+        earnDetail_->setText(QStringLiteral("活 %1 · 定 %2")
+                                 .arg(formatCompactNumber(overview.earnFlexibleEstimatedUsdt),
+                                      formatCompactNumber(overview.earnLockedEstimatedUsdt)));
+    }
+    else
+    {
+        earnBalance_->setText(QStringLiteral("--"));
+        earnDetail_->setText(QStringLiteral("理财数据未取得"));
+    }
+
+    const double otherValue = overview.spotEstimatedUsdt + overview.optionEstimatedUsdt;
+    const QList<double> allocationValues{
+        std::max(0.0, overview.usdMarginBalance),
+        std::max(0.0, overview.coinEstimatedUsdt),
+        std::max(0.0, overview.earnEstimatedUsdt),
+        std::max(0.0, otherValue)};
+    const QList<QFrame*> allocationSegments{
+        usdAllocationSegment_, coinAllocationSegment_,
+        earnAllocationSegment_, otherAllocationSegment_};
+    const double allocationTotal = allocationValues[0] + allocationValues[1]
+        + allocationValues[2] + allocationValues[3];
+    QStringList allocationParts;
+    const QStringList allocationNames{
+        QStringLiteral("U"), QStringLiteral("币"),
+        QStringLiteral("理财"), QStringLiteral("其他")};
+    for(int index = 0; index < allocationValues.size(); ++index)
+    {
+        const bool visible = allocationTotal > 0.0 && allocationValues[index] > 1e-9;
+        allocationSegments[index]->setVisible(visible);
+        allocationLayout_->setStretch(index, visible
+            ? std::max(1, qRound(allocationValues[index] / allocationTotal * 1000.0)) : 0);
+        if(visible)
+        {
+            allocationParts.append(QStringLiteral("%1 %2%")
+                                       .arg(allocationNames[index])
+                                       .arg(allocationValues[index] / allocationTotal * 100.0,
+                                            0, 'f', 0));
+        }
+    }
+    allocationText_->setText(allocationParts.isEmpty()
+        ? QStringLiteral("资产占比 --")
+        : QStringLiteral("资产占比  %1").arg(allocationParts.join(QStringLiteral(" · "))));
+}
+
+void MarketDetailCard::refreshTotalAsset()
+{
+    if(!totalAssetVisible_)
+    {
+        totalBalance_->setText(QStringLiteral("•••••• USDT"));
+        totalBalance_->setToolTip(QStringLiteral("总资产已隐藏"));
+        return;
+    }
+    if(!accountOverview_.valuationAvailable)
+    {
+        totalBalance_->setText(QStringLiteral("--"));
+        totalBalance_->setToolTip(QStringLiteral("等待账户资产"));
+        return;
+    }
+
+    totalBalance_->setText(QStringLiteral("%1%2 USDT")
+                               .arg(accountOverview_.valuationComplete
+                                        ? QString() : QStringLiteral("≈ "))
+                               .arg(formatCompactNumber(accountOverview_.estimatedTotalUsdt)));
+    const QString breakdown = QStringLiteral(
+        "现货 %1 · U 本位 %2 · 币本位 %3 · 期权 %4 · 理财 %5")
+        .arg(formatCompactNumber(accountOverview_.spotEstimatedUsdt),
+             formatCompactNumber(accountOverview_.usdMarginBalance),
+             formatCompactNumber(accountOverview_.coinEstimatedUsdt),
+             formatCompactNumber(accountOverview_.optionEstimatedUsdt),
+             formatCompactNumber(accountOverview_.earnEstimatedUsdt));
+    const QString valuationHint = accountOverview_.valuationComplete
+        ? QStringLiteral("完整估值\n%1").arg(breakdown)
+        : accountOverview_.unpricedAssets.isEmpty()
+            ? QStringLiteral("部分账户未返回，仅显示已取得资产的估值\n%1").arg(breakdown)
+            : QStringLiteral("未计价资产：%1\n%2")
+                  .arg(accountOverview_.unpricedAssets.join(QStringLiteral("、")), breakdown);
+    totalBalance_->setToolTip(valuationHint);
 }
 
 void MarketDetailCard::setAccountState(bool configured, const QString& message)

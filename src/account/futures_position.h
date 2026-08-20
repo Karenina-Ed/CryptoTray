@@ -2,6 +2,7 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 enum class FuturesMarket
 {
@@ -38,10 +39,22 @@ struct CoinAccountAsset
     double unrealizedProfit = 0.0;
 };
 
-// U 本位可按美元口径汇总；币本位资产单位不同，必须保留逐币种余额。
+// 总资产是多个账户权益按公开现货价折算后的估值；原始币本位余额仍保留给 UI 展示。
 struct FuturesAccountOverview
 {
     double usdMarginBalance = 0.0;
     double usdUnrealizedProfit = 0.0;
+    double spotEstimatedUsdt = 0.0;
+    double coinEstimatedUsdt = 0.0;
+    double optionEstimatedUsdt = 0.0;
+    double earnFlexibleEstimatedUsdt = 0.0;
+    double earnLockedEstimatedUsdt = 0.0;
+    double earnEstimatedUsdt = 0.0;
+    double estimatedTotalUsdt = 0.0;
     QList<CoinAccountAsset> coinAssets;
+    QStringList unpricedAssets;
+    bool valuationAvailable = false;
+    bool valuationComplete = false;
+    bool earnValuationAvailable = false;
+    bool earnValuationComplete = false;
 };

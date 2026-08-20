@@ -13,6 +13,7 @@
 #include <QUrl>
 
 #include <cmath>
+#include <optional>
 
 namespace
 {
@@ -35,6 +36,7 @@ QString positionSide(const QJsonObject& object, double amount)
     }
     return amount >= 0.0 ? QStringLiteral("LONG") : QStringLiteral("SHORT");
 }
+
 }
 
 AccountPositionService::AccountPositionService(QObject* parent)
@@ -140,7 +142,20 @@ void AccountPositionService::refresh()
     pendingPositions_.clear();
     pendingErrors_.clear();
     pendingOverview_ = {};
-    pendingReplies_ = 5;
+    pendingSpotBalances_.clear();
+    pendingOptionEquities_.clear();
+    pendingFlexibleEarnBalances_.clear();
+    pendingLockedEarnBalances_.clear();
+    pendingUsdtPrices_.clear();
+    usdAccountReceived_ = false;
+    coinAccountReceived_ = false;
+    spotAccountReceived_ = false;
+    optionsAccountReceived_ = false;
+    flexibleEarnReceived_ = false;
+    lockedEarnReceived_ = false;
+    earnPositionsTruncated_ = false;
+    pricesReceived_ = false;
+    pendingReplies_ = 10;
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Positions,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/positionRisk"));
@@ -156,13 +171,30 @@ void AccountPositionService::refresh()
     sendRequest(FuturesMarket::CoinMargined, RequestKind::Account,
                 QStringLiteral("https://dapi.binance.com"),
                 QStringLiteral("/dapi/v1/account"));
+    sendRequest(FuturesMarket::UsdMargined, RequestKind::SpotAccount,
+                QStringLiteral("https://api.binance.com"),
+                QStringLiteral("/api/v3/account"));
+    sendRequest(FuturesMarket::Options, RequestKind::OptionsAccount,
+                QStringLiteral("https://eapi.binance.com"),
+                QStringLiteral("/eapi/v1/marginAccount"));
+    sendRequest(FuturesMarket::UsdMargined, RequestKind::FlexibleEarn,
+                QStringLiteral("https://api.binance.com"),
+                QStringLiteral("/sapi/v1/simple-earn/flexible/position"),
+                QByteArrayLiteral("current=1&size=100"));
+    sendRequest(FuturesMarket::UsdMargined, RequestKind::LockedEarn,
+                QStringLiteral("https://api.binance.com"),
+                QStringLiteral("/sapi/v1/simple-earn/locked/position"),
+                QByteArrayLiteral("current=1&size=100"));
+    sendPublicPricesRequest();
 }
 
 void AccountPositionService::sendRequest(FuturesMarket market, RequestKind kind,
-                                         const QString& baseUrl, const QString& path)
+                                         const QString& baseUrl, const QString& path,
+                                         const QByteArray& extraQuery)
 {
     // 参数顺序必须与签名输入完全一致，signature 始终放在查询串末尾。
-    const QByteArray query = QByteArrayLiteral("timestamp=")
+    const QByteArray query = (extraQuery.isEmpty() ? QByteArray() : extraQuery + '&')
+        + QByteArrayLiteral("timestamp=")
         + QByteArray::number(QDateTime::currentMSecsSinceEpoch())
         + QByteArrayLiteral("&recvWindow=5000");
     const QByteArray signature = QMessageAuthenticationCode::hash(
@@ -180,6 +212,16 @@ void AccountPositionService::sendRequest(FuturesMarket market, RequestKind kind,
     });
 }
 
+void AccountPositionService::sendPublicPricesRequest()
+{
+    QNetworkReply* reply = network_.get(
+        QNetworkRequest(QUrl(QStringLiteral("https://api.binance.com/api/v3/ticker/price"))));
+    const int revision = credentialRevision_;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, revision]() {
+        handleReply(reply, FuturesMarket::UsdMargined, RequestKind::Prices, revision);
+    });
+}
+
 void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket market,
                                          RequestKind kind, int credentialRevision)
 {
@@ -190,8 +232,9 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
     }
     const QByteArray payload = reply->readAll();
     const QJsonDocument document = QJsonDocument::fromJson(payload);
-    const bool expectedShape = kind == RequestKind::Positions ? document.isArray()
-                                                              : document.isObject();
+    const bool expectedShape = kind == RequestKind::Positions || kind == RequestKind::Prices
+        ? document.isArray()
+        : document.isObject();
     if(reply->error() != QNetworkReply::NoError || !expectedShape)
     {
         QString message = reply->errorString();
@@ -202,11 +245,22 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
                 .arg(error.value(QStringLiteral("msg")).toString())
                 .arg(error.value(QStringLiteral("code")).toInt());
         }
-        const QString marketName = market == FuturesMarket::UsdMargined
-            ? QStringLiteral("U 本位")
-            : market == FuturesMarket::CoinMargined ? QStringLiteral("币本位")
-                                                     : QStringLiteral("期权");
-        pendingErrors_.append(QStringLiteral("%1：%2").arg(marketName, message));
+        const QString sourceName = kind == RequestKind::SpotAccount
+            ? QStringLiteral("现货账户")
+            : kind == RequestKind::OptionsAccount
+                ? QStringLiteral("期权账户")
+                : kind == RequestKind::FlexibleEarn
+                    ? QStringLiteral("理财活期")
+                    : kind == RequestKind::LockedEarn
+                        ? QStringLiteral("理财定期")
+                : kind == RequestKind::Prices
+                    ? QStringLiteral("资产估值行情")
+                    : market == FuturesMarket::UsdMargined
+                        ? QStringLiteral("U 本位")
+                        : market == FuturesMarket::CoinMargined
+                            ? QStringLiteral("币本位")
+                            : QStringLiteral("期权");
+        pendingErrors_.append(QStringLiteral("%1：%2").arg(sourceName, message));
     }
     else if(kind == RequestKind::Positions)
     {
@@ -247,11 +301,12 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             pendingPositions_.append(position);
         }
     }
-    else
+    else if(kind == RequestKind::Account)
     {
         const QJsonObject account = document.object();
         if(market == FuturesMarket::UsdMargined)
         {
+            usdAccountReceived_ = true;
             pendingOverview_.usdMarginBalance = account.value(
                 QStringLiteral("totalMarginBalance")).toString().toDouble();
             pendingOverview_.usdUnrealizedProfit = account.value(
@@ -259,6 +314,7 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
         }
         else
         {
+            coinAccountReceived_ = true;
             for(const QJsonValue& value : account.value(QStringLiteral("assets")).toArray())
             {
                 const QJsonObject asset = value.toObject();
@@ -276,6 +332,73 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             }
         }
     }
+    else if(kind == RequestKind::SpotAccount)
+    {
+        spotAccountReceived_ = true;
+        for(const QJsonValue& value : document.object().value(QStringLiteral("balances")).toArray())
+        {
+            const QJsonObject asset = value.toObject();
+            const double amount = asset.value(QStringLiteral("free")).toString().toDouble()
+                + asset.value(QStringLiteral("locked")).toString().toDouble();
+            if(std::abs(amount) >= 1e-12)
+            {
+                pendingSpotBalances_.insert(asset.value(QStringLiteral("asset")).toString(), amount);
+            }
+        }
+    }
+    else if(kind == RequestKind::OptionsAccount)
+    {
+        optionsAccountReceived_ = true;
+        for(const QJsonValue& value : document.object().value(QStringLiteral("asset")).toArray())
+        {
+            const QJsonObject asset = value.toObject();
+            const double equity = asset.value(QStringLiteral("equity")).toString().toDouble();
+            if(std::abs(equity) >= 1e-12)
+            {
+                pendingOptionEquities_.insert(asset.value(QStringLiteral("asset")).toString(), equity);
+            }
+        }
+    }
+    else if(kind == RequestKind::FlexibleEarn || kind == RequestKind::LockedEarn)
+    {
+        const bool flexible = kind == RequestKind::FlexibleEarn;
+        flexibleEarnReceived_ = flexibleEarnReceived_ || flexible;
+        lockedEarnReceived_ = lockedEarnReceived_ || !flexible;
+        QHash<QString, double>& balances = flexible
+            ? pendingFlexibleEarnBalances_ : pendingLockedEarnBalances_;
+        const QJsonObject response = document.object();
+        const QJsonArray rows = response.value(QStringLiteral("rows")).toArray();
+        for(const QJsonValue& value : rows)
+        {
+            const QJsonObject position = value.toObject();
+            const QString asset = position.value(QStringLiteral("asset")).toString();
+            const QString amountField = flexible ? QStringLiteral("totalAmount")
+                                                 : QStringLiteral("amount");
+            const double amount = position.value(amountField).toVariant().toDouble();
+            if(!asset.isEmpty() && std::abs(amount) >= 1e-12)
+            {
+                balances[asset] += amount;
+            }
+        }
+        if(response.value(QStringLiteral("total")).toVariant().toInt() > rows.size())
+        {
+            earnPositionsTruncated_ = true;
+            pendingErrors_.append(QStringLiteral("理财持仓超过 100 条，仅统计首批数据"));
+        }
+    }
+    else if(kind == RequestKind::Prices)
+    {
+        pricesReceived_ = true;
+        for(const QJsonValue& value : document.array())
+        {
+            const QJsonObject ticker = value.toObject();
+            const double price = ticker.value(QStringLiteral("price")).toString().toDouble();
+            if(price > 0.0)
+            {
+                pendingUsdtPrices_.insert(ticker.value(QStringLiteral("symbol")).toString(), price);
+            }
+        }
+    }
 
     reply->deleteLater();
     --pendingReplies_;
@@ -289,9 +412,92 @@ void AccountPositionService::finishRefresh()
         return;
     }
 
+    calculateEstimatedTotal();
     emit positionsUpdated(pendingPositions_);
     emit accountOverviewUpdated(pendingOverview_);
     emit accountStateChanged(true, pendingErrors_.isEmpty()
                                       ? QString()
                                       : pendingErrors_.join(QStringLiteral("；")));
+}
+
+void AccountPositionService::calculateEstimatedTotal()
+{
+    const auto valueInUsdt = [this](const QString& asset, double amount)
+        -> std::optional<double> {
+        if(asset == QStringLiteral("USDT"))
+        {
+            return amount;
+        }
+
+        const auto direct = pendingUsdtPrices_.constFind(asset + QStringLiteral("USDT"));
+        if(direct != pendingUsdtPrices_.cend())
+        {
+            return amount * direct.value();
+        }
+        const auto inverse = pendingUsdtPrices_.constFind(QStringLiteral("USDT") + asset);
+        if(inverse != pendingUsdtPrices_.cend())
+        {
+            return amount / inverse.value();
+        }
+
+        // 小币种常常只有 BTC 交易对，使用 BTCUSDT 做一次交叉折算。
+        const auto assetBtc = pendingUsdtPrices_.constFind(asset + QStringLiteral("BTC"));
+        const auto btcUsdt = pendingUsdtPrices_.constFind(QStringLiteral("BTCUSDT"));
+        if(assetBtc != pendingUsdtPrices_.cend() && btcUsdt != pendingUsdtPrices_.cend())
+        {
+            return amount * assetBtc.value() * btcUsdt.value();
+        }
+        return std::nullopt;
+    };
+
+    const auto addAssets = [&valueInUsdt, this](const QHash<QString, double>& assets,
+                                                double& subtotal) {
+        bool complete = true;
+        for(auto it = assets.cbegin(); it != assets.cend(); ++it)
+        {
+            const std::optional<double> value = valueInUsdt(it.key(), it.value());
+            if(value)
+            {
+                subtotal += *value;
+            }
+            else
+            {
+                complete = false;
+                pendingOverview_.unpricedAssets.append(it.key());
+            }
+        }
+        return complete;
+    };
+
+    addAssets(pendingSpotBalances_, pendingOverview_.spotEstimatedUsdt);
+    QHash<QString, double> coinBalances;
+    for(const CoinAccountAsset& asset : pendingOverview_.coinAssets)
+    {
+        coinBalances.insert(asset.asset, asset.marginBalance);
+    }
+    addAssets(coinBalances, pendingOverview_.coinEstimatedUsdt);
+    addAssets(pendingOptionEquities_, pendingOverview_.optionEstimatedUsdt);
+    const bool flexibleEarnPriced = addAssets(
+        pendingFlexibleEarnBalances_, pendingOverview_.earnFlexibleEstimatedUsdt);
+    const bool lockedEarnPriced = addAssets(
+        pendingLockedEarnBalances_, pendingOverview_.earnLockedEstimatedUsdt);
+    pendingOverview_.earnEstimatedUsdt = pendingOverview_.earnFlexibleEstimatedUsdt
+        + pendingOverview_.earnLockedEstimatedUsdt;
+    pendingOverview_.earnValuationAvailable = flexibleEarnReceived_ || lockedEarnReceived_;
+    pendingOverview_.earnValuationComplete = flexibleEarnReceived_ && lockedEarnReceived_
+        && flexibleEarnPriced && lockedEarnPriced && !earnPositionsTruncated_;
+
+    pendingOverview_.estimatedTotalUsdt = pendingOverview_.usdMarginBalance
+        + pendingOverview_.spotEstimatedUsdt
+        + pendingOverview_.coinEstimatedUsdt
+        + pendingOverview_.optionEstimatedUsdt
+        + pendingOverview_.earnEstimatedUsdt;
+    pendingOverview_.unpricedAssets.removeDuplicates();
+    pendingOverview_.valuationAvailable = usdAccountReceived_ || coinAccountReceived_
+        || spotAccountReceived_ || optionsAccountReceived_
+        || flexibleEarnReceived_ || lockedEarnReceived_;
+    pendingOverview_.valuationComplete = usdAccountReceived_ && coinAccountReceived_
+        && spotAccountReceived_ && optionsAccountReceived_ && pricesReceived_
+        && flexibleEarnReceived_ && lockedEarnReceived_ && !earnPositionsTruncated_
+        && pendingOverview_.unpricedAssets.isEmpty();
 }
