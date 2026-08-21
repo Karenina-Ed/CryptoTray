@@ -41,6 +41,7 @@ private:
         FlexibleEarn,
         LockedEarn,
         Prices,
+        FundingRates,
         CoinExchangeInfo
     };
 
@@ -49,6 +50,7 @@ private:
                      const QString& baseUrl, const QString& path,
                      const QByteArray& extraQuery = {});
     void sendPublicPricesRequest();
+    void sendFundingRatesRequest(FuturesMarket market);
     void sendCoinExchangeInfoRequest();
     void handleReply(QNetworkReply* reply, FuturesMarket market, RequestKind kind,
                      int credentialRevision);
@@ -66,6 +68,8 @@ private:
     QHash<QString, double> pendingFlexibleEarnBalances_;
     QHash<QString, double> pendingLockedEarnBalances_;
     QHash<QString, double> pendingUsdtPrices_;
+    QHash<QString, double> pendingUsdFundingRates_;
+    QHash<QString, double> pendingCoinFundingRates_;
     QHash<QString, int> pendingUsdLeverages_;
     QHash<QString, double> pendingCoinInitialMargins_;
     QHash<QString, double> pendingCoinContractSizes_;

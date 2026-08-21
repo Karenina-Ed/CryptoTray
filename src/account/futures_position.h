@@ -27,6 +27,9 @@ struct FuturesPosition
     double markPrice = 0.0;
     double strikePrice = 0.0;
     double unrealizedProfit = 0.0;
+    // 资金费率由对应合约市场的 premiumIndex 提供；期权没有该概念。
+    double fundingRate = 0.0;
+    bool fundingRateAvailable = false;
     // 收益率以同一结算资产下的未实现盈亏 / 持仓初始保证金计算。
     double initialMargin = 0.0;
     double liquidationPrice = 0.0;

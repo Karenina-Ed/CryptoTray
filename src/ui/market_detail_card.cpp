@@ -150,6 +150,7 @@ MarketDetailCard::MarketDetailCard(QWidget* parent)
         "QFrame[role='position'] { background: #15171c; border: 1px solid #24272e; border-radius: 10px; }"
         "QLabel[role='positionSymbol'] { color: #f4f4f5; font-size: 12px; font-weight: 700; }"
         "QLabel[role='positionMeta'] { color: #858b96; font-size: 10px; }"
+        "QLabel[role='fundingRate'] { color: #a7acb6; font-size: 10px; }"
         "QLabel[role='positionPnl'][trend='up'] { color: #17c964; font-size: 11px; font-weight: 700; }"
         "QLabel[role='positionPnl'][trend='down'] { color: #f04444; font-size: 11px; font-weight: 700; }"
         "QStackedWidget, QWidget[role='page'], QScrollArea, QScrollArea > QWidget, "
@@ -895,6 +896,19 @@ void MarketDetailCard::refreshPositions()
                                                   : QStringLiteral("看跌"), row);
                 optionSide->setProperty("role", "positionMeta");
                 headline->addWidget(optionSide);
+            }
+            else
+            {
+                const QString fundingText = position.fundingRateAvailable
+                    ? QStringLiteral("资金 %1%2%")
+                          .arg(position.fundingRate >= 0.0 ? QStringLiteral("+") : QString())
+                          .arg(position.fundingRate * 100.0, 0, 'f', 4)
+                    : QStringLiteral("资金 --");
+                auto* fundingRate = new QLabel(fundingText, row);
+                fundingRate->setProperty("role", "fundingRate");
+                // 正费率表示多方向空方支付，不等同于涨跌或盈亏，因此保持中性色。
+                fundingRate->setToolTip(QStringLiteral("当前资金费率；正值表示多方向空方支付"));
+                headline->addWidget(fundingRate);
             }
             headline->addStretch();
             QString amountText;

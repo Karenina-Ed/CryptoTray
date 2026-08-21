@@ -152,6 +152,8 @@ void AccountPositionService::refresh()
     pendingFlexibleEarnBalances_.clear();
     pendingLockedEarnBalances_.clear();
     pendingUsdtPrices_.clear();
+    pendingUsdFundingRates_.clear();
+    pendingCoinFundingRates_.clear();
     pendingUsdLeverages_.clear();
     pendingCoinInitialMargins_.clear();
     pendingCoinContractSizes_.clear();
@@ -163,7 +165,7 @@ void AccountPositionService::refresh()
     lockedEarnReceived_ = false;
     earnPositionsTruncated_ = false;
     pricesReceived_ = false;
-    pendingReplies_ = 12;
+    pendingReplies_ = 14;
     sendRequest(FuturesMarket::UsdMargined, RequestKind::Positions,
                 QStringLiteral("https://fapi.binance.com"),
                 QStringLiteral("/fapi/v3/positionRisk"));
@@ -198,6 +200,8 @@ void AccountPositionService::refresh()
                 QStringLiteral("/sapi/v1/simple-earn/locked/position"),
                 QByteArrayLiteral("current=1&size=100"));
     sendPublicPricesRequest();
+    sendFundingRatesRequest(FuturesMarket::UsdMargined);
+    sendFundingRatesRequest(FuturesMarket::CoinMargined);
     sendCoinExchangeInfoRequest();
 }
 
@@ -235,6 +239,19 @@ void AccountPositionService::sendPublicPricesRequest()
     });
 }
 
+void AccountPositionService::sendFundingRatesRequest(FuturesMarket market)
+{
+    const bool usdMargined = market == FuturesMarket::UsdMargined;
+    const QString url = usdMargined
+        ? QStringLiteral("https://fapi.binance.com/fapi/v1/premiumIndex")
+        : QStringLiteral("https://dapi.binance.com/dapi/v1/premiumIndex");
+    QNetworkReply* reply = network_.get(QNetworkRequest(QUrl(url)));
+    const int revision = credentialRevision_;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, market, revision]() {
+        handleReply(reply, market, RequestKind::FundingRates, revision);
+    });
+}
+
 void AccountPositionService::sendCoinExchangeInfoRequest()
 {
     QNetworkReply* reply = network_.get(
@@ -258,6 +275,7 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
     const QJsonDocument document = QJsonDocument::fromJson(payload);
     const bool expectedShape = kind == RequestKind::Positions
             || kind == RequestKind::SymbolConfiguration || kind == RequestKind::Prices
+            || kind == RequestKind::FundingRates
         ? document.isArray()
         : document.isObject();
     if(reply->error() != QNetworkReply::NoError || !expectedShape)
@@ -284,6 +302,10 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
                         ? QStringLiteral("理财定期")
                 : kind == RequestKind::Prices
                     ? QStringLiteral("资产估值行情")
+                    : kind == RequestKind::FundingRates
+                        ? (market == FuturesMarket::UsdMargined
+                               ? QStringLiteral("U 本位资金费率")
+                               : QStringLiteral("币本位资金费率"))
                     : market == FuturesMarket::UsdMargined
                         ? QStringLiteral("U 本位")
                         : market == FuturesMarket::CoinMargined
@@ -459,6 +481,23 @@ void AccountPositionService::handleReply(QNetworkReply* reply, FuturesMarket mar
             }
         }
     }
+    else if(kind == RequestKind::FundingRates)
+    {
+        QHash<QString, double>& rates = market == FuturesMarket::UsdMargined
+            ? pendingUsdFundingRates_ : pendingCoinFundingRates_;
+        for(const QJsonValue& value : document.array())
+        {
+            const QJsonObject premium = value.toObject();
+            const QString symbol = premium.value(QStringLiteral("symbol")).toString();
+            bool validRate = false;
+            const double rate = premium.value(QStringLiteral("lastFundingRate"))
+                                    .toVariant().toDouble(&validRate);
+            if(!symbol.isEmpty() && validRate && std::isfinite(rate))
+            {
+                rates.insert(symbol, rate);
+            }
+        }
+    }
     else if(kind == RequestKind::CoinExchangeInfo)
     {
         for(const QJsonValue& value : document.object().value(QStringLiteral("symbols")).toArray())
@@ -492,6 +531,12 @@ void AccountPositionService::finishRefresh()
         if(position.market == FuturesMarket::UsdMargined)
         {
             position.leverage = pendingUsdLeverages_.value(position.symbol, 0);
+            const auto rate = pendingUsdFundingRates_.constFind(position.symbol);
+            if(rate != pendingUsdFundingRates_.cend())
+            {
+                position.fundingRate = rate.value();
+                position.fundingRateAvailable = true;
+            }
         }
         else if(position.market == FuturesMarket::CoinMargined)
         {
@@ -502,6 +547,12 @@ void AccountPositionService::finishRefresh()
             {
                 // COIN-M 为反向合约：美元合约价值除以标记价格即为基础币数量。
                 position.baseAssetAmount = position.amount * contractSize / position.markPrice;
+            }
+            const auto rate = pendingCoinFundingRates_.constFind(position.symbol);
+            if(rate != pendingCoinFundingRates_.cend())
+            {
+                position.fundingRate = rate.value();
+                position.fundingRateAvailable = true;
             }
         }
     }
